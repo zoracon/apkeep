@@ -33,8 +33,6 @@ jobs:
             os: ubuntu-latest
           - target: x86_64-linux-android
             os: ubuntu-latest
-          - target: i686-unknown-linux-gnu
-            os: ubuntu-latest
           - target: armv7-linux-androideabi
             os: ubuntu-latest
     runs-on: ${{ matrix.os }}
