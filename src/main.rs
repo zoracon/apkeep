@@ -134,12 +134,13 @@ use cli::DownloadSource;
 
 mod config;
 mod consts;
-mod progress_bar;
+mod util;
 
-mod apkpure;
-mod fdroid;
-mod google_play;
-mod huawei_app_gallery;
+mod download_sources;
+use download_sources::google_play;
+use download_sources::fdroid;
+use download_sources::apkpure;
+use download_sources::huawei_app_gallery;
 
 type CSVList = Vec<(String, Option<String>)>;
 fn fetch_csv_list(csv: &str, field: usize, version_field: Option<usize>) -> Result<CSVList, Box<dyn Error>> {
@@ -264,7 +265,7 @@ async fn main() {
     if let Some(true) = matches.get_one::<bool>("list_versions") {
         match download_source {
             DownloadSource::APKPure => {
-                apkpure::list_versions(list).await;
+                apkpure::list_versions(list, options).await;
             }
             DownloadSource::GooglePlay => {
                 google_play::list_versions(list);
