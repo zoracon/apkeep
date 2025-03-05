@@ -52,6 +52,9 @@ jobs:
       - name: Install OpenSSL
         run: sudo apt-get install openssl
         if: startsWith(matrix.os, 'ubuntu')
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
+        if: startsWith(matrix.target, 'armv7')
       - name: Build
         run: |
           export OPENSSL_DIR=/usr
