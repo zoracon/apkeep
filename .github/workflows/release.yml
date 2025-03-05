@@ -50,16 +50,11 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         run: sudo apt-get install libssl-dev
       - name: Install OpenSSL
-        run: |
-          wget https://www.openssl.org/source/openssl-3.3.2.tar.gz
-          tar -xzf openssl-3.3.2.tar.gz
-          cd openssl-3.3.2
-          ./config
-          sudo make install
+        run: sudo apt-get install openssl
         if: startsWith(matrix.os, 'ubuntu')
       - name: Build
         run: |
-          export OPENSSL_DIR=/usr/local/ssl
+          export OPENSSL_DIR=/usr
           cargo build --release --target ${{ matrix.target }}
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
