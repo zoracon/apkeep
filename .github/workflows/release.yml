@@ -45,21 +45,22 @@ jobs:
             os: windows-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v2
       - name: Install cross-compilation tools
-        uses: taiki-e/setup-cross-toolchain-action@v1
-        with:
-          target: ${{ matrix.target }}
         if: startsWith(matrix.os, 'ubuntu')
+        run: sudo apt-get install libssl-dev
       - name: Install OpenSSL
         run: |
           wget https://www.openssl.org/source/openssl-3.3.2.tar.gz
           tar -xzf openssl-3.3.2.tar.gz
           cd openssl-3.3.2
           ./config
-          make
           sudo make install
         if: startsWith(matrix.os, 'ubuntu')
+      - name: Build
+        run: |
+          export OPENSSL_DIR=/usr/local/ssl
+          cargo build --release --target ${{ matrix.target }}
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
           bin: apkeep
