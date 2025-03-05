@@ -17,7 +17,7 @@ jobs:
         with:
           # (required) GitHub token for creating GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
-
+  
   upload-assets:
     needs: create-release
     strategy:
@@ -51,11 +51,14 @@ jobs:
         with:
           target: ${{ matrix.target }}
         if: startsWith(matrix.os, 'ubuntu')
+      - name: Install OpenSSL
+        run: sudo apt-get install -y pkg-config libssl-dev
+        if: startsWith(matrix.os, 'ubuntu')
+      - name: Set OpenSSL directory
+        run: echo "OPENSSL_DIR=$(openssl version -d | cut -d '\"' -f 2)" >> $GITHUB_ENV
+        if: startsWith(matrix.os, 'ubuntu')
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
-          # Note that glob pattern is not supported yet.
           bin: apkeep
           target: ${{ matrix.target }}
-          # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
