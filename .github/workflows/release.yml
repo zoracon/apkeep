@@ -52,10 +52,13 @@ jobs:
           target: ${{ matrix.target }}
         if: startsWith(matrix.os, 'ubuntu')
       - name: Install OpenSSL
-        run: sudo apt-get install -y pkg-config libssl-dev
-        if: startsWith(matrix.os, 'ubuntu')
-      - name: Set OpenSSL directory
-        run: echo "OPENSSL_DIR=$(openssl version -d | cut -d '\"' -f 2)" >> $GITHUB_ENV
+        run: |
+          wget https://www.openssl.org/source/openssl-3.3.2.tar.gz
+          tar -xzf openssl-3.3.2.tar.gz
+          cd openssl-3.3.2
+          ./config
+          make
+          sudo make install
         if: startsWith(matrix.os, 'ubuntu')
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
