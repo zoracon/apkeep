@@ -47,7 +47,7 @@ jobs:
           # [default value: windows]
           # [possible values: all, unix, windows, none]
           zip: windows
-          # (optional) Build with the given set of features if any.
-          features: ${{ matrix.features || '' }}
+          # # (optional) Build with the given set of features if any.
+          # features: ${{ matrix.features || '' }}
           # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
