@@ -37,23 +37,11 @@ jobs:
             os: ubuntu-latest
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
-      - name: Install cross-compilation tools
-        if: startsWith(matrix.os, 'ubuntu')
-        run: |
-          sudo apt-get update    
-          sudo apt-get install -y libssl-dev gcc-multilib
-      - name: Install OpenSSL
-        run: sudo apt-get install openssl
-        if: startsWith(matrix.os, 'ubuntu')
-      - name: Install Rust target
-        run: rustup target add ${{ matrix.target }}
-      - name: Build
-        run: |
-          export OPENSSL_DIR=/usr
-          cargo build --release --target ${{ matrix.target }}
+      - uses: actions/checkout@v4
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
+          # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
+          # Note that glob pattern is not supported yet.
           bin: apkeep
-          target: ${{ matrix.target }}
+          # (required) GitHub token for uploading assets to GitHub Releases.
           token: ${{ secrets.GITHUB_TOKEN }}
