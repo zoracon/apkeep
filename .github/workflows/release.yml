@@ -1,231 +1,53 @@
-name: Build and Release Rust Binaries
+name: Release
+
+permissions:
+  contents: write
 
 on:
-  release:
-    types: [created] # Trigger workflow when a new release is created
-  workflow_dispatch: # Allow manual triggering
-
-env:
-  CARGO_TERM_COLOR: always
-  # Define versions - makes updates easier
-  OPENSSL_VERSION: 3.3.2 # Use the version from your script
-  ANDROID_NDK_VERSION: r26c # Use the version from your script
-  XWIN_VERSION: 0.6.5 # Use the version from your script
+  push:
+    tags:
+      - v[0-9]+.*
 
 jobs:
-  build_and_upload:
-    name: Build & Upload Binaries
-    runs-on: ubuntu-latest # Matches Debian base reasonably well
-    permissions:
-      contents: write # Needed to write release assets
-
+  create-release:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: taiki-e/create-gh-release-action@v1
         with:
-          # Submodules might be needed depending on the project structure
-          submodules: true
+          # (required) GitHub token for creating GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Maximize build space # Free up runner space if needed
-        uses: easimon/maximize-build-space@v10
+  upload-assets:
+    needs: create-release
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          root-reserve-mb: 512
-          swap-size-mb: 1024
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
-
-      - name: Cache dependencies (Apt)
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt/archives
-          key: ${{ runner.os }}-apt-${{ hashFiles('**/build_script.sh') }} # Adjust key if needed
-          restore-keys: |
-            ${{ runner.os }}-apt-
-
-      - name: Cache dependencies (Cargo)
-        uses: Swatinem/rust-cache@v2
-        with:
-          # Cache downloaded crates and build dependencies
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Set up build environment (Multi-arch, Base Tools, Cross Compilers)
-        run: |
-          sudo dpkg --add-architecture armhf
-          sudo dpkg --add-architecture i386
-          sudo dpkg --add-architecture arm64
-          sudo apt-get update -y
-          # Consider dist-upgrade if strictly necessary, but update is usually enough
-          # sudo apt-get dist-upgrade -y
-          sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config unzip gcc-multilib \
-            libc6-armhf-cross libc6-dev-armhf-cross gcc-arm-linux-gnueabihf libssl-dev:armhf \
-            libc6-i386-cross libc6-dev-i386-cross gcc-i686-linux-gnu libssl-dev:i386 \
-            libc6-arm64-cross libc6-dev-arm64-cross gcc-aarch64-linux-gnu libssl-dev:arm64 \
-            clang-16 llvm-16 lld-16 wget ca-certificates patch
-          # Clean apt cache to save space
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-
-      - name: Install Rust toolchain and targets
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: armv7-unknown-linux-gnueabihf, i686-unknown-linux-gnu, aarch64-unknown-linux-gnu, aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android, x86_64-pc-windows-msvc
-
-      - name: Build Linux Native (x86_64-unknown-linux-gnu)
-        run: |
-          echo "PKG_CONFIG_ALLOW_CROSS=true" >> $GITHUB_ENV
-          cargo build --release --verbose
-          # Rename and move binary for upload
-          mkdir -p ./release-assets
-          cp target/release/apkeep ./release-assets/apkeep-x86_64-unknown-linux-gnu
-
-      - name: Build Linux ARMv7 (armv7-unknown-linux-gnueabihf)
-        run: |
-          echo "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig" >> $GITHUB_ENV
-          cargo build --release --target=armv7-unknown-linux-gnueabihf --verbose
-          cp target/armv7-unknown-linux-gnueabihf/release/apkeep ./release-assets/apkeep-armv7-unknown-linux-gnueabihf
-
-      - name: Build Linux i686 (i686-unknown-linux-gnu)
-        run: |
-          echo "PKG_CONFIG_PATH=/usr/lib/i686-linux-gnu/pkgconfig" >> $GITHUB_ENV # Path might differ slightly on runner vs Debian 12 - check if fails
-          cargo build --release --target=i686-unknown-linux-gnu --verbose
-          cp target/i686-unknown-linux-gnu/release/apkeep ./release-assets/apkeep-i686-unknown-linux-gnu
-
-      - name: Build Linux AArch64 (aarch64-unknown-linux-gnu)
-        run: |
-          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> $GITHUB_ENV # Path might differ slightly on runner vs Debian 12 - check if fails
-          cargo build --release --target=aarch64-unknown-linux-gnu --verbose
-          cp target/aarch64-unknown-linux-gnu/release/apkeep ./release-assets/apkeep-aarch64-unknown-linux-gnu
-
-      # --- Android Build Steps ---
-      - name: Set up OpenSSL for Android
-        run: |
-          wget https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz -O openssl.tar.gz
-          tar -zxvf openssl.tar.gz
-          cd openssl-${OPENSSL_VERSION}
-          # Use the same patch source or include the patch file in your repo
-          wget https://raw.githubusercontent.com/EFForg/apkeep-files/main/Configurations-15-android.conf.patch -O patch.diff
-          patch -u Configurations/15-android.conf patch.diff
-          echo "OPENSSL_SRC_DIR=$PWD" >> $GITHUB_ENV
-          # Set base OPENSSL_DIR, lib dir will be set per target build
-          echo "OPENSSL_DIR=$PWD" >> $GITHUB_ENV
-          echo "OPENSSL_LIB_DIR=$PWD" >> $GITHUB_ENV # Initial value, will be updated
-          cd ..
-
-      - name: Set up Android NDK
-        run: |
-          wget https://dl.google.com/android/repository/android-ndk-${ANDROID_NDK_VERSION}-linux.zip -O ndk.zip
-          unzip -q ndk.zip
-          echo "ANDROID_NDK_ROOT=$PWD/android-ndk-${ANDROID_NDK_VERSION}" >> $GITHUB_ENV
-          # Add NDK toolchain to PATH
-          NDK_TOOLCHAIN_BIN="$PWD/android-ndk-${ANDROID_NDK_VERSION}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          echo "$NDK_TOOLCHAIN_BIN" >> $GITHUB_PATH
-          # Set AR for OpenSSL build
-          echo "AR=llvm-ar" >> $GITHUB_ENV
-          # Create Clang symlinks needed by OpenSSL configure script
-          cd $NDK_TOOLCHAIN_BIN
-          ln -s aarch64-linux-android26-clang aarch64-linux-android-clang # Adjust API level (26) if needed
-          ln -s armv7a-linux-androideabi26-clang arm-linux-androideabi-clang
-          ln -s i686-linux-android26-clang i686-linux-android-clang
-          ln -s x86_64-linux-android26-clang x86_64-linux-android-clang
-
-      - name: Build Android AArch64 (aarch64-linux-android)
-        run: |
-          # Build OpenSSL for target
-          cd $OPENSSL_SRC_DIR
-          make clean || true # Ensure clean state
-          ./Configure android-arm64 -D__ANDROID_MIN_SDK_VERSION__=26 # Match API level in symlinks
-          make -j$(nproc) build_libs # Use build_libs for faster parallel builds
-          cd ${{ github.workspace }} # Go back to project root
-          # Build crate
-          cargo build --release --target=aarch64-linux-android --verbose
-          cp target/aarch64-linux-android/release/apkeep ./release-assets/apkeep-aarch64-linux-android
-
-      - name: Build Android ARMv7 (armv7-linux-androideabi)
-        run: |
-          # Build OpenSSL for target
-          cd $OPENSSL_SRC_DIR
-          make clean || true
-          ./Configure android-arm -D__ANDROID_MIN_SDK_VERSION__=26
-          make -j$(nproc) build_libs
-          cd ${{ github.workspace }}
-          # Build crate
-          cargo build --release --target=armv7-linux-androideabi --verbose
-          cp target/armv7-linux-androideabi/release/apkeep ./release-assets/apkeep-armv7-linux-androideabi
-
-      - name: Build Android i686 (i686-linux-android)
-        run: |
-          # Build OpenSSL for target
-          cd $OPENSSL_SRC_DIR
-          make clean || true
-          ./Configure android-x86 -D__ANDROID_MIN_SDK_VERSION__=26
-          make -j$(nproc) build_libs
-          cd ${{ github.workspace }}
-          # Build crate
-          cargo build --release --target=i686-linux-android --verbose
-          cp target/i686-linux-android/release/apkeep ./release-assets/apkeep-i686-linux-android
-
-      - name: Build Android x86_64 (x86_64-linux-android)
-        run: |
-          # Build OpenSSL for target
-          cd $OPENSSL_SRC_DIR
-          make clean || true
-          ./Configure android-x86_64 -D__ANDROID_MIN_SDK_VERSION__=26
-          make -j$(nproc) build_libs
-          cd ${{ github.workspace }}
-          # Build crate
-          cargo build --release --target=x86_64-linux-android --verbose
-          cp target/x86_64-linux-android/release/apkeep ./release-assets/apkeep-x86_64-linux-android
-
-      # --- Windows Build Steps ---
-      - name: Set up Clang/LLD for Windows Cross-compilation
-        run: |
-          # Symlinks needed for MSVC target using Clang
-          sudo ln -s /usr/bin/clang-16 /usr/bin/clang-cl
-          sudo ln -s /usr/bin/clang-16 /usr/bin/clang++
-          sudo ln -s /usr/bin/lld-16 /usr/bin/ld.lld
-          sudo ln -s /usr/bin/llvm-ar-16 /usr/bin/llvm-lib
-          sudo ln -s /usr/bin/lld-link-16 /usr/bin/lld-link
-          sudo ln -s /usr/bin/lld-link /usr/bin/link # cargo sometimes looks for link.exe or link
-
-      - name: Set up xwin for Windows SDK/CRT
-        run: |
-          XWIN_PREFIX="xwin-${XWIN_VERSION}-x86_64-unknown-linux-musl"
-          wget https://github.com/Jake-Shadle/xwin/releases/download/${XWIN_VERSION}/${XWIN_PREFIX}.tar.gz -O xwin.tar.gz
-          mkdir -p ~/.cargo/bin # Ensure target dir exists
-          tar -xzvf xwin.tar.gz -C ~/.cargo/bin --strip-components=1 ${XWIN_PREFIX}/xwin
-          # Add xwin dir to PATH if needed (usually not if placed in ~/.cargo/bin)
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          # Download SDK/CRT files
-          mkdir -p $HOME/xwin-out # Use a dedicated dir in HOME
-          xwin --accept-license splat --output $HOME/xwin-out
-
-      - name: Build Windows x86_64 (x86_64-pc-windows-msvc)
-        run: |
-          # Set environment variables for MSVC cross-compilation with Clang
-          echo "CC_x86_64_pc_windows_msvc=clang-cl" >> $GITHUB_ENV
-          echo "CXX_x86_64_pc_windows_msvc=clang-cl" >> $GITHUB_ENV
-          echo "AR_x86_64_pc_windows_msvc=llvm-lib" >> $GITHUB_ENV
-          # Linker needs to be set via rustflags typically
-          XWIN_HOME="$HOME/xwin-out" # Path where xwin downloaded files
-          CL_FLAGS="-Wno-unused-command-line-argument -fuse-ld=lld-link /imsvc${XWIN_HOME}/crt/include /imsvc${XWIN_HOME}/sdk/include/ucrt /imsvc${XWIN_HOME}/sdk/include/um /imsvc${XWIN_HOME}/sdk/include/shared"
-          RUST_FLAGS="-Lnative=${XWIN_HOME}/crt/lib/x86_64 -Lnative=${XWIN_HOME}/sdk/lib/um/x86_64 -Lnative=${XWIN_HOME}/sdk/lib/ucrt/x86_64 -Clinker=lld-link"
-
-          echo "CFLAGS_x86_64_pc_windows_msvc=${CL_FLAGS}" >> $GITHUB_ENV
-          echo "CXXFLAGS_x86_64_pc_windows_msvc=${CL_FLAGS}" >> $GITHUB_ENV
-          echo "RUSTFLAGS=${RUST_FLAGS}" >> $GITHUB_ENV
-
-          cargo build --release --target x86_64-pc-windows-msvc --verbose
-          cp target/x86_64-pc-windows-msvc/release/apkeep.exe ./release-assets/apkeep-x86_64-pc-windows-msvc.exe
-
-      - name: Upload Release Assets
-        uses: svenstaro/upload-release-action@v2
-        with:
-          # The directory containing the binaries to upload.
-          repo_name: zoracon/apkeep
-          file: ./release-assets
-          # The github token is automatically supplied by Actions.
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          # (required) Comma-separated list of binary names (non-extension portion of filename) to build and upload.
+          # Note that glob pattern is not supported yet.
+          bin: apkeep
+          # (optional) Target triple, default is host triple.
+          target: ${{ matrix.target }}
+          # (optional) On which platform to distribute the `.tar.gz` file.
+          # [default value: unix]
+          # [possible values: all, unix, windows, none]
+          tar: unix
+          # (optional) On which platform to distribute the `.zip` file.
+          # [default value: windows]
+          # [possible values: all, unix, windows, none]
+          zip: windows
+          # # (optional) Build with the given set of features if any.
+          # features: ${{ matrix.features || '' }}
+          # (required) GitHub token for uploading assets to GitHub Releases.
+          token: ${{ secrets.GITHUB_TOKEN }}
