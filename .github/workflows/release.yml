@@ -225,12 +225,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           # The directory containing the binaries to upload.
-          asset-dir: ./release-assets
+          repo_name: zoracon/apkeep
+          file: ./release-assets
           # The github token is automatically supplied by Actions.
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          # Optional: specify a tag, otherwise defaults to git tag
-          # tag: ${{ github.ref }}
-          # Optional: Overwrite existing assets
-          # overwrite: true
-          # Optional: Treat as pre-release
-          # prlerease: false
