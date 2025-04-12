@@ -222,7 +222,7 @@ jobs:
           cp target/x86_64-pc-windows-msvc/release/apkeep.exe ./release-assets/apkeep-x86_64-pc-windows-msvc.exe
 
       - name: Upload Release Assets
-        uses: svenstaro/upload-rust-binary-action@v1.0.1 # Check for latest version
+        uses: svenstaro/upload-release-action@v2
         with:
           # The directory containing the binaries to upload.
           asset-dir: ./release-assets
