@@ -25,12 +25,6 @@ jobs:
       ANDROID_NDK_VERSION: "r26c"
       XWIN_VERSION: "0.6.5"
       MIN_ANDROID_SDK_VERSION: "26"
-  
-      # Cache directory paths (relative to runner home)
-      NDK_CACHE_PATH: "android-ndk-$ANDROID_NDK_VERSION"
-      OPENSSL_SRC_CACHE_PATH: "openssl-$OPENSSL_VERSION"
-      XWIN_SDK_CACHE_PATH: "xwin-sdk"
-      XWIN_BIN_CACHE_PATH: ".local/xwin"
 
       # Derived variables (used within steps)
       OPENSSL_TARBALL: "openssl-$OPENSSL_VERSION.tar.gz"
@@ -78,15 +72,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Cache Android NDK
-      id: cache-ndk
-      uses: actions/cache@v4
-      with:
-        path: ${{ env.NDK_CACHE_PATH }}
-        key: ${{ runner.os }}-ndk-${{ env.ANDROID_NDK_VERSION }}
-
     - name: Download and Verify Android NDK
-      if: steps.cache-ndk.outputs.cache-hit != 'true'
       run: |
         wget -q "${{ env.ANDROID_NDK_URL }}"
         echo "${{ env.ANDROID_NDK_SHA256 }}  ${{ env.ANDROID_NDK_ZIP }}" | sha256sum -c -
@@ -108,17 +94,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Cache xwin
-      id: cache-xwin
-      uses: actions/cache@v4
-      with:
-        path: |
-          ${{ env.XWIN_BIN_CACHE_PATH }}
-          ${{ env.XWIN_SDK_CACHE_PATH }}
-        key: ${{ runner.os }}-xwin-${{ env.XWIN_VERSION }}
-
     - name: Setup xwin Environment
-      if: steps.cache-xwin.outputs.cache-hit != 'true'
       run: |
         mkdir -p ${{ env.XWIN_BIN_CACHE_PATH }}
         curl -L "https://github.com/Jake-Shadle/xwin/releases/download/${{ env.XWIN_VERSION }}/xwin-${{ env.XWIN_VERSION }}-x86_64-unknown-linux-musl.tar.gz" | tar xz -C ${{ env.XWIN_BIN_CACHE_PATH }}
