@@ -15,31 +15,30 @@ permissions:
   id-token: none
   actions: none
 
-env:
-  # Define versions and paths as environment variables for easy updates
-  APKEEP_DIR_NAME: "apkeep" # Should match repo name if workflow is in the repo
-  OPENSSL_VERSION: "3.3.2"
-  ANDROID_NDK_VERSION: "r26c"
-  XWIN_VERSION: "0.6.5"
-  MIN_ANDROID_SDK_VERSION: "26"
-
-  # Cache directory paths (relative to runner home)
-  NDK_CACHE_PATH: "android-ndk-${{ env.ANDROID_NDK_VERSION }}"
-  OPENSSL_SRC_CACHE_PATH: "openssl-${{ env.OPENSSL_VERSION }}"
-  XWIN_SDK_CACHE_PATH: "xwin-sdk"
-  XWIN_BIN_CACHE_PATH: ".local/xwin"
-
-  # Derived variables (used within steps)
-  OPENSSL_TARBALL: "openssl-${{ env.OPENSSL_VERSION }}.tar.gz"
-  OPENSSL_URL: "https://www.openssl.org/source/${{ env.OPENSSL_TARBALL }}"
-  OPENSSL_SHA256: "<ADD_OPENSSL_CHECKSUM_HERE>"
-  ANDROID_NDK_ZIP: "android-ndk-${{ env.ANDROID_NDK_VERSION }}-linux.zip"
-  ANDROID_NDK_URL: "https://dl.google.com/android/repository/${{ env.ANDROID_NDK_ZIP }}"
-  ANDROID_NDK_SHA256: "<ADD_NDK_CHECKSUM_HERE>"
-
 jobs:
   build_linux:
     runs-on: ubuntu-22.04
+    env:
+      # Define versions and paths as environment variables for easy updates
+      APKEEP_DIR_NAME: "apkeep" # Should match repo name if workflow is in the repo
+      OPENSSL_VERSION: "3.3.2"
+      ANDROID_NDK_VERSION: "r26c"
+      XWIN_VERSION: "0.6.5"
+      MIN_ANDROID_SDK_VERSION: "26"
+  
+      # Cache directory paths (relative to runner home)
+      NDK_CACHE_PATH: "android-ndk-${{ env.ANDROID_NDK_VERSION }}"
+      OPENSSL_SRC_CACHE_PATH: "openssl-${{ env.OPENSSL_VERSION }}"
+      XWIN_SDK_CACHE_PATH: "xwin-sdk"
+      XWIN_BIN_CACHE_PATH: ".local/xwin"
+
+      # Derived variables (used within steps)
+      OPENSSL_TARBALL: "openssl-${{ env.OPENSSL_VERSION }}.tar.gz"
+      OPENSSL_URL: "https://www.openssl.org/source/${{ env.OPENSSL_TARBALL }}"
+      OPENSSL_SHA256: "<ADD_OPENSSL_CHECKSUM_HERE>"
+      ANDROID_NDK_ZIP: "android-ndk-${{ env.ANDROID_NDK_VERSION }}-linux.zip"
+      ANDROID_NDK_URL: "https://dl.google.com/android/repository/${{ env.ANDROID_NDK_ZIP }}"
+      ANDROID_NDK_SHA256: "<ADD_NDK_CHECKSUM_HERE>"
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
