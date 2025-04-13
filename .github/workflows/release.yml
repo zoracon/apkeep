@@ -2,11 +2,11 @@ name: Build and Release Apkeep Multi-Arch
 
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
     tags:
       - 'v*' # Important: This action primarily targets tag pushes for releases
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
   workflow_dispatch:
 
 # Add permissions for uploading release assets
