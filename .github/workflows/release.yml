@@ -27,8 +27,8 @@ jobs:
       MIN_ANDROID_SDK_VERSION: "26"
   
       # Cache directory paths (relative to runner home)
-      NDK_CACHE_PATH: "android-ndk-${{ env.ANDROID_NDK_VERSION }}"
-      OPENSSL_SRC_CACHE_PATH: "openssl-${{ env.OPENSSL_VERSION }}"
+      NDK_CACHE_PATH: "android-ndk-ANDROID_NDK_VERSION"
+      OPENSSL_SRC_CACHE_PATH: "openssl-$OPENSSL_VERSION"
       XWIN_SDK_CACHE_PATH: "xwin-sdk"
       XWIN_BIN_CACHE_PATH: ".local/xwin"
 
