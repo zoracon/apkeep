@@ -4,14 +4,16 @@ on:
   push:
     branches: [ master ]
     tags:
-      - 'v*' # Important: This action primarily targets tag pushes for releases
+      - 'v*' # Target tag pushes for releases
   pull_request:
     branches: [ master ]
   workflow_dispatch:
 
-# Add permissions for uploading release assets
+# Restrict permissions to the least privilege needed
 permissions:
-  contents: write # Needed by taiki-e/upload-rust-binary-action to upload release assets
+  contents: read # Default for all jobs
+  id-token: none
+  actions: none
 
 env:
   # Define versions and paths as environment variables for easy updates
@@ -25,83 +27,58 @@ env:
   NDK_CACHE_PATH: "android-ndk-${{ env.ANDROID_NDK_VERSION }}"
   OPENSSL_SRC_CACHE_PATH: "openssl-${{ env.OPENSSL_VERSION }}"
   XWIN_SDK_CACHE_PATH: "xwin-sdk"
-  XWIN_BIN_CACHE_PATH: ".local/xwin" # Contains the xwin binary
+  XWIN_BIN_CACHE_PATH: ".local/xwin"
 
   # Derived variables (used within steps)
   OPENSSL_TARBALL: "openssl-${{ env.OPENSSL_VERSION }}.tar.gz"
   OPENSSL_URL: "https://www.openssl.org/source/${{ env.OPENSSL_TARBALL }}"
-  OPENSSL_PATCH_URL: "https://raw.githubusercontent.com/EFForg/apkeep-files/main/Configurations-15-android.conf.patch"
+  OPENSSL_SHA256: "<ADD_OPENSSL_CHECKSUM_HERE>"
   ANDROID_NDK_ZIP: "android-ndk-${{ env.ANDROID_NDK_VERSION }}-linux.zip"
   ANDROID_NDK_URL: "https://dl.google.com/android/repository/${{ env.ANDROID_NDK_ZIP }}"
+  ANDROID_NDK_SHA256: "<ADD_NDK_CHECKSUM_HERE>"
 
 jobs:
-  build_and_release: # Combine build and release logic into one job
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        rust: [stable]
-
+  build_linux:
+    runs-on: ubuntu-22.04
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      # If this workflow lives *outside* the apkeep repo, uncomment and set repo:
-      # with:
-      #   repository: EFForg/apkeep
-      #   path: ${{ env.APKEEP_DIR_NAME }}
 
-    - name: Setup Base Environment (add archs, install packages)
+    - name: Setup Base Environment
       run: |
         sudo dpkg --add-architecture armhf
         sudo dpkg --add-architecture i386
         sudo dpkg --add-architecture arm64
         sudo apt-get update
         sudo apt-get -y install --no-install-recommends \
-            build-essential libssl-dev pkg-config unzip gcc-multilib \
-            libc6-armhf-cross libc6-dev-armhf-cross gcc-arm-linux-gnueabihf libssl-dev:armhf \
-            libc6-i386-cross libc6-dev-i386-cross gcc-i686-linux-gnu libssl-dev:i386 \
-            libc6-arm64-cross libc6-dev-arm64-cross gcc-aarch64-linux-gnu libssl-dev:arm64 \
-            clang-16 llvm-16 lld-16 wget patch jq # Add jq for JSON processing later
-
-    - name: Define Build Targets and Convert to JSON
-      id: targets
-      run: |
-        # Define targets arrays
-        LINUX_TARGETS_STR="x86_64-unknown-linux-gnu armv7-unknown-linux-gnueabihf i686-unknown-linux-gnu aarch64-unknown-linux-gnu"
-        ANDROID_TARGETS_STR="aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android"
-        WINDOWS_TARGET_STR="x86_64-pc-windows-msvc"
-        ALL_BUILD_TARGETS_STR="$LINUX_TARGETS_STR $ANDROID_TARGETS_STR $WINDOWS_TARGET_STR"
-        ALL_RUST_TARGETS_STR="armv7-unknown-linux-gnueabihf i686-unknown-linux-gnu aarch64-unknown-linux-gnu aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android x86_64-pc-windows-msvc"
-
-        # Save space-separated strings to GITHUB_ENV for individual build steps if needed later
-        echo "LINUX_TARGETS=$LINUX_TARGETS_STR" >> $GITHUB_ENV
-        echo "ANDROID_TARGETS=$ANDROID_TARGETS_STR" >> $GITHUB_ENV
-        echo "WINDOWS_TARGET=$WINDOWS_TARGET_STR" >> $GITHUB_ENV
-        echo "ALL_BUILD_TARGETS=$ALL_BUILD_TARGETS_STR" >> $GITHUB_ENV
-        echo "ALL_RUST_TARGETS=$ALL_RUST_TARGETS_STR" >> $GITHUB_ENV
-
-        # Convert the list of all build targets to a JSON array for the matrix strategy
-        targets_json=$(echo "$ALL_BUILD_TARGETS_STR" | jq -R 'split(" ")' | jq -c '.')
-        echo "targets_json=$targets_json" >> $GITHUB_OUTPUT
+          build-essential libssl-dev pkg-config unzip gcc-multilib \
+          libc6-armhf-cross libc6-dev-armhf-cross gcc-arm-linux-gnueabihf libssl-dev:armhf \
+          libc6-i386-cross libc6-dev-i386-cross gcc-i686-linux-gnu libssl-dev:i386 \
+          libc6-arm64-cross libc6-dev-arm64-cross gcc-aarch64-linux-gnu libssl-dev:arm64
 
     - name: Install Rust Toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
-        toolchain: ${{ matrix.rust }}
-        targets: ${{ env.ALL_RUST_TARGETS }}
+        toolchain: stable
+        targets: |
+          x86_64-unknown-linux-gnu
+          armv7-unknown-linux-gnueabihf
+          i686-unknown-linux-gnu
+          aarch64-unknown-linux-gnu
 
-    - name: Cache Cargo Dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cargo/bin/
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/ # Cache the whole target directory
-        key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-${{ matrix.rust }}
-        restore-keys: |
-          ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}-
-          ${{ runner.os }}-cargo-
+    - name: Build Linux Targets
+      run: |
+        cd ${{ env.APKEEP_DIR_NAME }}
+        cargo build --release --target x86_64-unknown-linux-gnu
+        cargo build --release --target armv7-unknown-linux-gnueabihf
+        cargo build --release --target i686-unknown-linux-gnu
+        cargo build --release --target aarch64-unknown-linux-gnu
+
+  build_android:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Cache Android NDK
       id: cache-ndk
@@ -110,104 +87,29 @@ jobs:
         path: ${{ env.NDK_CACHE_PATH }}
         key: ${{ runner.os }}-ndk-${{ env.ANDROID_NDK_VERSION }}
 
-    - name: Download and Extract Android NDK
+    - name: Download and Verify Android NDK
       if: steps.cache-ndk.outputs.cache-hit != 'true'
       run: |
-        echo "INFO: Downloading Android NDK ${{ env.ANDROID_NDK_VERSION }}..."
         wget -q "${{ env.ANDROID_NDK_URL }}"
-        echo "INFO: Extracting NDK..."
+        echo "${{ env.ANDROID_NDK_SHA256 }}  ${{ env.ANDROID_NDK_ZIP }}" | sha256sum -c -
         unzip -q "${{ env.ANDROID_NDK_ZIP }}" -d ~
         mv android-ndk-${{ env.ANDROID_NDK_VERSION }} ~/${{ env.NDK_CACHE_PATH }}
-        echo "INFO: Cleaning up NDK archive..."
         rm "${{ env.ANDROID_NDK_ZIP }}"
 
-    - name: Set NDK Environment Variables
-      run: |
-        echo "ANDROID_NDK_HOME=${{ runner.homedir }}/${{ env.NDK_CACHE_PATH }}" >> $GITHUB_ENV
-        echo "${{ runner.homedir }}/${{ env.NDK_CACHE_PATH }}/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
-
-    - name: Cache OpenSSL Source
-      id: cache-openssl-src
-      uses: actions/cache@v4
-      with:
-        path: ${{ env.OPENSSL_SRC_CACHE_PATH }}
-        key: ${{ runner.os }}-openssl-src-${{ env.OPENSSL_VERSION }}-${{ hash(env.OPENSSL_PATCH_URL) }} # Use hash of URL as part of key
-
-    - name: Download, Extract, and Patch OpenSSL
-      if: steps.cache-openssl-src.outputs.cache-hit != 'true'
-      run: |
-        echo "INFO: Downloading OpenSSL ${{ env.OPENSSL_VERSION }}..."
-        wget -q "${{ env.OPENSSL_URL }}"
-        echo "INFO: Extracting OpenSSL..."
-        tar -zxvf "${{ env.OPENSSL_TARBALL }}"
-        mv openssl-${{ env.OPENSSL_VERSION }} ${{ env.OPENSSL_SRC_CACHE_PATH }}
-        echo "INFO: Patching OpenSSL for Android..."
-        cd ${{ env.OPENSSL_SRC_CACHE_PATH }}
-        wget -q "${{ env.OPENSSL_PATCH_URL }}" -O openssl_android.patch
-        patch -p1 < openssl_android.patch
-        echo "INFO: Cleaning up OpenSSL archive..."
-        rm ~/${{ env.OPENSSL_TARBALL }} # Tarball downloaded to ~
-
-    - name: Set OpenSSL Environment Variables
-      run: |
-        echo "OPENSSL_DIR=${{ runner.homedir }}/${{ env.OPENSSL_SRC_CACHE_PATH }}" >> $GITHUB_ENV
-        echo "OPENSSL_LIB_DIR=${{ runner.homedir }}/${{ env.OPENSSL_SRC_CACHE_PATH }}" >> $GITHUB_ENV
-
-    # --- Build Linux Targets ---
-    - name: Build Linux Targets
-      run: |
-        cd ${{ env.APKEEP_DIR_NAME }}
-        export PKG_CONFIG_ALLOW_CROSS="1"
-
-        echo "INFO: Building for x86_64-unknown-linux-gnu (native)..."
-        unset PKG_CONFIG_PATH || true
-        cargo build --release --target=x86_64-unknown-linux-gnu
-
-        echo "INFO: Building for armv7-unknown-linux-gnueabihf..."
-        export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig"
-        cargo build --release --target=armv7-unknown-linux-gnueabihf
-
-        echo "INFO: Building for i686-unknown-linux-gnu..."
-        export PKG_CONFIG_PATH="/usr/lib/i386-linux-gnu/pkgconfig"
-        cargo build --release --target=i686-unknown-linux-gnu
-
-        echo "INFO: Building for aarch64-unknown-linux-gnu..."
-        export PKG_CONFIG_PATH="/usr/lib/aarch64-linux-gnu/pkgconfig"
-        cargo build --release --target=aarch64-unknown-linux-gnu
-
-        unset PKG_CONFIG_PATH PKG_CONFIG_ALLOW_CROSS
-
-    # --- Build Android Targets ---
     - name: Build Android Targets
       run: |
         cd ${{ env.APKEEP_DIR_NAME }}
-        APKEEP_PROJECT_DIR="$PWD"
-        OPENSSL_DIR="${{ env.OPENSSL_DIR }}"
-        ANDROID_NDK_HOME="${{ env.ANDROID_NDK_HOME }}"
-        MIN_ANDROID_SDK_VERSION="${{ env.MIN_ANDROID_SDK_VERSION }}"
-        NDK_TOOLCHAIN_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+        cargo build --release --target aarch64-linux-android
+        cargo build --release --target armv7-linux-androideabi
+        cargo build --release --target i686-linux-android
+        cargo build --release --target x86_64-linux-android
 
-        cd "$NDK_TOOLCHAIN_BIN"
-        if [ ! -L "arm-linux-androideabi-clang" ]; then ln -s "armv7a-linux-androideabi${MIN_ANDROID_SDK_VERSION}-clang" arm-linux-androideabi-clang; fi
-        if [ ! -L "i686-linux-android-clang" ]; then ln -s "i686-linux-android${MIN_ANDROID_SDK_VERSION}-clang" i686-linux-android-clang; fi
-        cd "$APKEEP_PROJECT_DIR"
+  build_windows:
+    runs-on: ubuntu-22.04
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-        build_android_target() {
-            local target="$1"; local openssl_platform="$2"
-            local openssl_arch_flags="-D__ANDROID_MIN_SDK_VERSION__=${MIN_ANDROID_SDK_VERSION}"
-            echo -e "\nINFO: Building Android: ${target} (OpenSSL: ${openssl_platform})"
-            cd "${OPENSSL_DIR}"
-            make clean || echo "WARN: 'make clean' failed or nothing to clean."
-            ./Configure "${openssl_platform}" "${openssl_arch_flags}"; make -j$(nproc)
-            cd "${APKEEP_PROJECT_DIR}"; cargo build --release --target="${target}"
-        }
-
-        build_android_target "aarch64-linux-android"   "android-arm64"
-        build_android_target "armv7-linux-androideabi" "android-arm"
-        build_android_target "i686-linux-android"      "android-x86"
-        build_android_target "x86_64-linux-android"    "android-x86_64"
-
-    # --- Setup for Windows Build ---
     - name: Cache xwin
       id: cache-xwin
       uses: actions/cache@v4
@@ -217,77 +119,35 @@ jobs:
           ${{ env.XWIN_SDK_CACHE_PATH }}
         key: ${{ runner.os }}-xwin-${{ env.XWIN_VERSION }}
 
-    - name: Setup xwin for Windows Cross-Compile
+    - name: Setup xwin Environment
       if: steps.cache-xwin.outputs.cache-hit != 'true'
       run: |
-        echo "INFO: Setting up xwin..."
-        XWIN_INSTALL_DIR="${{ runner.homedir }}/${{ env.XWIN_BIN_CACHE_PATH }}"
-        XWIN_OUTPUT_DIR="${{ runner.homedir }}/${{ env.XWIN_SDK_CACHE_PATH }}"
-        mkdir -p "${XWIN_INSTALL_DIR}" "${XWIN_OUTPUT_DIR}"
-        XWIN_PREFIX="xwin-${{ env.XWIN_VERSION }}-x86_64-unknown-linux-musl"
-        echo "INFO: Downloading xwin binary..."
-        curl --fail -L "https://github.com/Jake-Shadle/xwin/releases/download/${{ env.XWIN_VERSION }}/${XWIN_PREFIX}.tar.gz" | \
-            tar -xzv -C "${XWIN_INSTALL_DIR}" --strip-components=1 "${XWIN_PREFIX}/xwin"
-        echo "INFO: Running xwin splat (this may take a while)..."
-        "${XWIN_INSTALL_DIR}/xwin" --accept-license splat --output "${XWIN_OUTPUT_DIR}"
+        mkdir -p ${{ env.XWIN_BIN_CACHE_PATH }}
+        curl -L "https://github.com/Jake-Shadle/xwin/releases/download/${{ env.XWIN_VERSION }}/xwin-${{ env.XWIN_VERSION }}-x86_64-unknown-linux-musl.tar.gz" | tar xz -C ${{ env.XWIN_BIN_CACHE_PATH }}
 
-    - name: Set Windows Build Environment
-      run: |
-        echo "INFO: Configuring environment for Windows cross-compile..."
-        sudo ln -sf /usr/bin/clang-16 /usr/bin/clang-cl
-        sudo ln -sf /usr/bin/llvm-ar-16 /usr/bin/llvm-lib
-        sudo ln -sf /usr/bin/lld-link-16 /usr/bin/lld-link
-        sudo ln -sf /usr/bin/lld-link /usr/bin/link.exe
-
-        XWIN_OUTPUT_DIR="${{ runner.homedir }}/${{ env.XWIN_SDK_CACHE_PATH }}"
-        echo "CC_x86_64_pc_windows_msvc=clang-cl" >> $GITHUB_ENV
-        echo "CXX_x86_64_pc_windows_msvc=clang-cl" >> $GITHUB_ENV
-        echo "AR_x86_64_pc_windows_msvc=llvm-lib" >> $GITHUB_ENV
-        MSVC_FLAGS="-Wno-unused-command-line-argument -fuse-ld=lld-link /imsvc${XWIN_OUTPUT_DIR}/crt/include /imsvc${XWIN_OUTPUT_DIR}/sdk/include/ucrt /imsvc${XWIN_OUTPUT_DIR}/sdk/include/um /imsvc${XWIN_OUTPUT_DIR}/sdk/include/shared"
-        echo "CFLAGS_x86_64_pc_windows_msvc=${MSVC_FLAGS}" >> $GITHUB_ENV
-        echo "CXXFLAGS_x86_64_pc_windows_msvc=${MSVC_FLAGS}" >> $GITHUB_ENV
-        echo "RUSTFLAGS=-Lnative=${XWIN_OUTPUT_DIR}/crt/lib/x86_64 -Lnative=${XWIN_OUTPUT_DIR}/sdk/lib/um/x86_64 -Lnative=${XWIN_OUTPUT_DIR}/sdk/lib/ucrt/x86_64" >> $GITHUB_ENV
-
-    # --- Build Windows Target ---
-    - name: Build Windows Target
+    - name: Build Windows Targets
       run: |
         cd ${{ env.APKEEP_DIR_NAME }}
-        echo "INFO: Building Windows target: ${{ env.WINDOWS_TARGET }}..."
-        cargo build --release --target ${{ env.WINDOWS_TARGET }}
+        cargo build --release --target x86_64-pc-windows-msvc
 
-    # --- Upload Release Assets ---
-    # This step runs only for tag pushes (e.g., `v1.2.3`)
+  upload_release:
+    needs: [build_linux, build_android, build_windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # Only needed for this job
+    steps:
     - name: Upload Release Assets
-      if: startsWith(github.ref, 'refs/tags/') # Only run for tags
       uses: taiki-e/upload-rust-binary-action@v1
-      # Run this action for each target using a matrix strategy on the step
-      strategy:
-        fail-fast: false # Ensure all uploads are attempted even if one fails
-        matrix:
-          # Use the JSON array of targets created in the 'Define Build Targets' step
-          target: ${{ fromJson(steps.targets.outputs.targets_json) }}
       with:
-        # (Required) Name of the binary crate
         bin: apkeep
-        # (Required) The GitHub token. Permissions must be set at the workflow level.
         token: ${{ secrets.GITHUB_TOKEN }}
-        # (Required when `bin` is specified) Target triple for the built binary.
-        # Already specified in the matrix strategy.
-        # target: ${{ matrix.target }} # Implicitly used by the action based on context? Check docs. Let's be explicit if needed.
-
-        # (Optional but Recommended) Specify the exact path to the pre-built binary.
-        # This is needed because we built manually before this step.
-        # We need to handle the .exe suffix for Windows.
-        file: |
-          ${{ env.APKEEP_DIR_NAME }}/target/${{ matrix.target }}/release/apkeep${{ contains(matrix.target, 'windows') && '.exe' || '' }}
-
-        # (Optional) Override the asset name. Defaults to `<bin>-<target>.<archive_ext>`.
-        # We'll add the tag name for clarity.
-        asset_name: apkeep-${{ matrix.target }}-${{ github.ref_name }}
-
-        # (Optional) Specify the tag name. Defaults to `github.ref_name`.
-        tag: ${{ github.ref_name }}
-
-        # (Optional) Automatically create tarballs/zip archives.
-        tar: linux # Create tar.gz for targets containing 'linux' (includes android)
-        zip: windows # Create .zip for targets containing 'windows'
+        targets: |
+          x86_64-unknown-linux-gnu
+          armv7-unknown-linux-gnueabihf
+          i686-unknown-linux-gnu
+          aarch64-unknown-linux-gnu
+          aarch64-linux-android
+          armv7-linux-androideabi
+          i686-linux-android
+          x86_64-linux-android
+          x86_64-pc-windows-msvc
