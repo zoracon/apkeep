@@ -38,13 +38,11 @@ jobs:
 
     - name: Setup Base Environment
       run: |
-        sudo dpkg --add-architecture armhf
         sudo dpkg --add-architecture i386
         sudo dpkg --add-architecture arm64
         sudo apt-get update
         sudo apt-get -y install --no-install-recommends \
           build-essential libssl-dev pkg-config unzip gcc-multilib \
-          libc6-armhf-cross libc6-dev-armhf-cross gcc-arm-linux-gnueabihf libssl-dev:armhf \
           libc6-i386-cross libc6-dev-i386-cross gcc-i686-linux-gnu libssl-dev:i386 \
           libc6-arm64-cross libc6-dev-arm64-cross gcc-aarch64-linux-gnu libssl-dev:arm64
 
