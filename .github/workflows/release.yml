@@ -63,8 +63,7 @@ jobs:
     # Build using 'cross' for Linux/Android targets on Ubuntu runner
     - name: Install cross-rs
       if: matrix.use-cross == true
-      run: cargo install cross --git https://github.com/cross-rs/cross --tag master # Or use a specific release tag
-
+      run: cargo install cross --git https://github.com/cross-rs/cross
     - name: Build with cross
       if: matrix.use-cross == true
       run: cross build --release --target ${{ matrix.target }} --verbose
