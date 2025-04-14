@@ -1,120 +1,112 @@
-name: Build and Release Apkeep Multi-Arch
+name: Build Rust Binaries
 
 on:
   push:
-    branches: [ master ]
-    tags:
-      - 'v*' # Target tag pushes for releases
-  pull_request:
-    branches: [ master ]
-  workflow_dispatch:
-
-# Restrict permissions to the least privilege needed
-permissions:
-  contents: read # Default for all jobs
-  id-token: none
-  actions: none
+    branches: [ main ] # Trigger on pushes to the main branch
+  workflow_dispatch:   # Optional: Allow manual triggering
 
 jobs:
-  build_linux:
-    runs-on: ubuntu-22.04
-    env:
-      # Define versions and paths as environment variables for easy updates
-      APKEEP_DIR_NAME: "apkeep" # Should match repo name if workflow is in the repo
-      OPENSSL_VERSION: "3.3.2"
-      ANDROID_NDK_VERSION: "r26c"
-      XWIN_VERSION: "0.6.5"
-      MIN_ANDROID_SDK_VERSION: "26"
+  build-targets:
+    name: Build for ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # Keep running other builds even if one fails
+      matrix:
+        include:
+          # Linux GNU Targets (using Ubuntu runner + cross)
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            use-cross: true
+          - target: armv7-unknown-linux-gnueabihf
+            os: ubuntu-latest
+            use-cross: true
+          - target: i686-unknown-linux-gnu
+            os: ubuntu-latest
+            use-cross: true
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            use-cross: true
 
-      # Derived variables (used within steps)
-      OPENSSL_TARBALL: "openssl-$OPENSSL_VERSION.tar.gz"
-      OPENSSL_URL: "https://www.openssl.org/source/$OPENSSL_TARBALL"
-      ANDROID_NDK_ZIP: "android-ndk-$ANDROID_NDK_VERSION-linux.zip"
-      ANDROID_NDK_URL: "https://dl.google.com/android/repository/$ANDROID_NDK_ZIP"
-      ANDROID_NDK_SHA256: "<ADD_NDK_CHECKSUM_HERE>"
+          # Android Targets (using Ubuntu runner + cross)
+          # Note: Android builds via cross might require specific NDK setup or dependencies
+          # defined in Cross.toml if your crate has C dependencies.
+          - target: aarch64-linux-android
+            os: ubuntu-latest
+            use-cross: true
+          - target: armv7-linux-androideabi
+            os: ubuntu-latest
+            use-cross: true
+          - target: i686-linux-android
+            os: ubuntu-latest
+            use-cross: true
+          - target: x86_64-linux-android
+            os: ubuntu-latest
+            use-cross: true
+
+          # Windows MSVC Target (using Windows runner, native build)
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            use-cross: false # No cross needed, build natively
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Setup Base Environment
-      run: |
-        sudo dpkg --add-architecture i386
-        sudo dpkg --add-architecture arm64
-        sudo apt-get update
-        sudo apt-get -y install --no-install-recommends \
-          build-essential libssl-dev pkg-config unzip gcc-multilib \
-          libc6-i386-cross libc6-dev-i386-cross gcc-i686-linux-gnu libssl-dev:i386 \
-          libc6-arm64-cross libc6-dev-arm64-cross gcc-aarch64-linux-gnu libssl-dev:arm64
-
-    - name: Install Rust Toolchain
+    - name: Set up Rust toolchain
       uses: dtolnay/rust-toolchain@stable
       with:
         toolchain: stable
-        targets: |
-          x86_64-unknown-linux-gnu
-          armv7-unknown-linux-gnueabihf
-          i686-unknown-linux-gnu
-          aarch64-unknown-linux-gnu
+        targets: ${{ matrix.target }} # Install the specific target via rustup
 
-    - name: Build Linux Targets
+    # --- Build steps ---
+
+    # Build using 'cross' for Linux/Android targets on Ubuntu runner
+    - name: Install cross-rs
+      if: matrix.use-cross == true
+      run: cargo install cross --git https://github.com/cross-rs/cross --tag main # Or use a specific release tag
+
+    - name: Build with cross
+      if: matrix.use-cross == true
+      run: cross build --release --target ${{ matrix.target }} --verbose
+
+    # Build natively for Windows target on Windows runner
+    - name: Build natively (Windows)
+      if: matrix.use-cross == false && matrix.os == 'windows-latest'
+      run: cargo build --release --target ${{ matrix.target }} --verbose
+      shell: bash # Use bash for consistency if needed, or default powershell
+
+    # --- Package and Upload Artifacts ---
+
+    # Package Linux/Android binaries
+    - name: Package artifact (Linux/Android)
+      if: matrix.use-cross == true
+      shell: bash
       run: |
-        cd $APKEEP_DIR_NAME
-        cargo build --release --target x86_64-unknown-linux-gnu
-        cargo build --release --target armv7-unknown-linux-gnueabihf
-        cargo build --release --target i686-unknown-linux-gnu
-        cargo build --release --target aarch64-unknown-linux-gnu
+        CRATE_NAME=apkeep
+        cd target/${{ matrix.target }}/release
+        if [[ "${{ matrix.target }}" == *"-android"* ]]; then
+          # Android might produce shared objects (.so) if it's a cdylib, adjust if needed
+          # Assuming a standard binary for now
+          echo "Packaging $CRATE_NAME for ${{ matrix.target }}"
+        fi
+        tar czvf ../../../${CRATE_NAME}-${{ matrix.target }}.tar.gz $CRATE_NAME
+        cd ../../../
 
-  build_android:
-    runs-on: ubuntu-22.04
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Download and Verify Android NDK
+    # Package Windows binary
+    - name: Package artifact (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: pwsh # Use PowerShell for Compress-Archive
       run: |
-        wget -q "$ANDROID_NDK_URL"
-        echo "$ANDROID_NDK_SHA256  $ANDROID_NDK_ZIP" | sha256sum -c -
-        unzip -q "$ANDROID_NDK_ZIP" -d ~
-        mv android-ndk-$ANDROID_NDK_VERSION ~/$NDK_CACHE_PATH
-        rm "$ANDROID_NDK_ZIP"
+        $CRATE_NAME="apkeep"
+        $TARGET_DIR="target/${{ matrix.target }}/release"
+        Compress-Archive -Path "$TARGET_DIR/$($CRATE_NAME).exe" -DestinationPath "$($CRATE_NAME)-${{ matrix.target }}.zip"
 
-    - name: Build Android Targets
-      run: |
-        cd $APKEEP_DIR_NAME
-        cargo build --release --target aarch64-linux-android
-        cargo build --release --target armv7-linux-androideabi
-        cargo build --release --target i686-linux-android
-        cargo build --release --target x86_64-linux-android
-
-  build_windows:
-    runs-on: ubuntu-22.04
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Build Windows Targets
-      run: |
-        cd $APKEEP_DIR_NAME
-        cargo build --release --target x86_64-pc-windows-msvc
-
-  upload_release:
-    needs: [build_linux, build_android, build_windows]
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write # Only needed for this job
-    steps:
-    - name: Upload Release Assets
-      uses: taiki-e/upload-rust-binary-action@v1
+    # Upload all artifacts
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
       with:
-        bin: apkeep
-        token: ${{ secrets.GITHUB_TOKEN }}
-        targets: |
-          x86_64-unknown-linux-gnu
-          armv7-unknown-linux-gnueabihf
-          i686-unknown-linux-gnu
-          aarch64-unknown-linux-gnu
-          aarch64-linux-android
-          armv7-linux-androideabi
-          i686-linux-android
-          x86_64-linux-android
-          x86_64-pc-windows-msvc
+        name: binary-${{ matrix.target }}
+        # Define path based on OS and packaging method
+        path: |
+          apkeep-${{ matrix.target }}.tar.gz
+          apkeep-${{ matrix.target }}.zip
