@@ -58,7 +58,7 @@ jobs:
 
     - name: Build Linux Targets
       run: |
-        cd ${{ env.APKEEP_DIR_NAME }}
+        cd $APKEEP_DIR_NAME
         cargo build --release --target x86_64-unknown-linux-gnu
         cargo build --release --target armv7-unknown-linux-gnueabihf
         cargo build --release --target i686-unknown-linux-gnu
@@ -72,15 +72,15 @@ jobs:
 
     - name: Download and Verify Android NDK
       run: |
-        wget -q "${{ env.ANDROID_NDK_URL }}"
-        echo "${{ env.ANDROID_NDK_SHA256 }}  ${{ env.ANDROID_NDK_ZIP }}" | sha256sum -c -
-        unzip -q "${{ env.ANDROID_NDK_ZIP }}" -d ~
-        mv android-ndk-${{ env.ANDROID_NDK_VERSION }} ~/${{ env.NDK_CACHE_PATH }}
-        rm "${{ env.ANDROID_NDK_ZIP }}"
+        wget -q "$ANDROID_NDK_URL"
+        echo "$ANDROID_NDK_SHA256  $ANDROID_NDK_ZIP" | sha256sum -c -
+        unzip -q "$ANDROID_NDK_ZIP" -d ~
+        mv android-ndk-$ANDROID_NDK_VERSION ~/$NDK_CACHE_PATH
+        rm "$ANDROID_NDK_ZIP"
 
     - name: Build Android Targets
       run: |
-        cd ${{ env.APKEEP_DIR_NAME }}
+        cd $APKEEP_DIR_NAME
         cargo build --release --target aarch64-linux-android
         cargo build --release --target armv7-linux-androideabi
         cargo build --release --target i686-linux-android
@@ -94,7 +94,7 @@ jobs:
 
     - name: Build Windows Targets
       run: |
-        cd ${{ env.APKEEP_DIR_NAME }}
+        cd $APKEEP_DIR_NAME
         cargo build --release --target x86_64-pc-windows-msvc
 
   upload_release:
